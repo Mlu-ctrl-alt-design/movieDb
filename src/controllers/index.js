@@ -1,106 +1,120 @@
-// Import the neccesary modules.
-import fs from "fs";
-import path from "path";
+// Import the necessary modules.
+// @flow
+import { ContentService } from 'pop-api'
 
-import Anime from "../models/Anime";
-import Movie from "../models/Movie";
-import Show from "../models/Show";
-import Util from "../util";
+import ContentController from './ContentController'
+import ExportController from './ExportController'
+import IndexController from './IndexController'
 import {
-  server,
-  statusFile,
-  tempDir,
-  updatedFile
-} from "../config/constants";
-import {
-  name,
-  repository,
-  version
-} from "../../package.json";
+  AnimeShow as Anime,
+  Movie,
+  Show
+} from '../models'
 
-/** class for displaying information about the server the API is running on. */
-export default class Index {
-
-  /** Create an index object. */
-  constructor() {
-    /**
-     * The util object with general functions.
-     * @type {Util}
-     */
-    Index._util = new Util();
-  }
-
-  /**
-   * Displays a given file.
-   * @param {Request} req - The express request object.
-   * @param {Response} res - The express response object.
-   * @param {String} root - The path to the file.
-   * @param {String} file - The name of the file.
-   * @returns {JSON | File} - A file to display in the browser.
-   */
-  static _displayFile(req, res, root, file) {
-    if (fs.existsSync(path.join(root, file))) {
-      return res.sendFile(file, {
-        root,
-        headers: {
-          "Content-Type": "text/plain; charset=UTF-8"
-        }
-      });
-    } else {
-      return res.json({error: `Could not find file: '${root}'`});
-    }
-  }
-
-  /**
-   * Get general information about the server.
-   * @param {Request} req - The express request object.
-   * @param {Response} res - The express response object.
-   * @param {Function} next - The next function for Express.
-   * @returns {JSON} - General information about the server.
-   */
-  async getIndex(req, res, next) {
-    try {
-      const { updated } = JSON.parse(fs.readFileSync(path.join(tempDir, updatedFile), "utf8"));
-      const { status } = JSON.parse(fs.readFileSync(path.join(tempDir, statusFile), "utf8"));
-      const commit = await Index._util.executeCommand("git rev-parse --short HEAD");
-      const totalAnimes = await Anime.count({
-        num_seasons: {
-          $gt: 0
-        },
-        type: "show"
-      }).exec();
-      const totalMovies = await Movie.count().exec();
-      const totalShows = await Show.count({
-        num_seasons: {
-          $gt: 0
-        }
-      }).exec();
-
-      return res.json({
-        repo: repository.url,
-        server,
-        status,
-        totalAnimes,
-        totalMovies,
-        totalShows,
-        updated,
-        uptime: process.uptime() | 0,
-        version,
-        commit
-      });
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  /**
-   * Displays the 'popcorn-api.log' file.
-   * @param {Request} req - The express request object.
-   * @param {Response} res - The express response object.
-   * @returns {File} - The content of the log file.
-   */
-  getErrorLog(req, res) {
-    return Index._displayFile(req, res, tempDir, `${name}.log`);
-  }
-
+/**
+ * Object used as a base projections for content.
+ * @type {Object}
+ */
+const baseProjection: Object = {
+  _id: 1,
+  imdb_id: 1,
+  title: 1,
+  year: 1,
+  slug: 1,
+  synopsis: 1,
+  genres: 1,
+  images: 1,
+  rating: 1,
+  type: 1
 }
+
+/**
+ * Object used for the projection of movies.
+ * @type {Object}
+ */
+const movieProjection: Object = {
+  ...baseProjection,
+  synopsis: 1,
+  runtime: 1,
+  released: 1,
+  trailer: 1,
+  certification: 1,
+  torrents: 1
+}
+
+/**
+ * Object used for the projection of shows.
+ * @type {Object}
+ */
+const showProjection: Object = {
+  ...baseProjection,
+  tvdb_id: 1,
+  num_seasons: 1
+}
+
+/**
+ * Object used for the projection of animes.
+ * @type {Object}
+ */
+const animeProjection: Object = {
+  ...movieProjection,
+  ...showProjection
+}
+
+/**
+ * Object used to query for content.
+ * @type {Object}
+ */
+const query: Object = {
+  $or: [{
+    num_seasons: {
+      $gt: 0
+    }
+  }, {
+    torrents: {
+      $exists: true
+    }
+  }]
+}
+
+/**
+ * The controllers used by the setup process of registering them.
+ * @type {Array<Object>}
+ */
+export default [{
+  Controller: IndexController,
+  args: {}
+}, {
+  Controller: ExportController,
+  args: {}
+}, {
+  Controller: ContentController,
+  args: {
+    basePath: 'anime',
+    service: new ContentService({
+      Model: Anime,
+      projection: animeProjection,
+      query
+    })
+  }
+}, {
+  Controller: ContentController,
+  args: {
+    basePath: 'movie',
+    service: new ContentService({
+      Model: Movie,
+      projection: movieProjection,
+      query
+    })
+  }
+}, {
+  Controller: ContentController,
+  args: {
+    basePath: 'show',
+    service: new ContentService({
+      Model: Show,
+      projection: showProjection,
+      query
+    })
+  }
+}]
